@@ -1,5 +1,6 @@
 const indexFile = (req, res) => {
-  res.sendFile("./public/index.html", "text/html");
+  //res.sendFile("./public/index.html", "text/html");
+  res.end();
 };
 
 const bar = (req, res) => {
@@ -12,4 +13,4 @@ const controller = {
   indexFile,
 };
 
-module.exports = controller;
+export default controller;

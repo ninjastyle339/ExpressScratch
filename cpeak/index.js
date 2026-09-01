@@ -1,15 +1,16 @@
-const http = require("node:http");
-const fs = require("node:fs/promises");
+import http from "node:http";
+import fs from "node:fs/promises";
 
-const { parseJSON } = require("./util");
-
+import { parseJSON } from "./util.js";
+import { handleRoutes, RadixTree, cors } from "./util.js";
 class Cpeak {
   constructor() {
     this.server = http.createServer();
-    this.routes = {};
+    this.routes = new RadixTree();
     this.middleware = [];
 
     this.server.on("request", (req, res) => {
+
       // Send a file back to the client
       res.sendFile = async (path, mime) => {
         const fileHandle = await fs.open(path, "r");
@@ -33,21 +34,39 @@ class Cpeak {
         res.end(JSON.stringify(data));
       };
 
+
+
       const urlWithoutParams = req.url.split("?")[0];
-      req.params = new URLSearchParams(req.url.split("?")[1]);
+      req.query = new URLSearchParams(req.url.split("?")[1]);
 
       // Run all the middleware functions before we run the corresponding route
       const runMiddleware = (req, res, middleware, index) => {
         // Out exit point...
         if (index === middleware.length) {
+          const handleRoute = this.routes.match(req.method.toLowerCase(), urlWithoutParams);
+          //const handleRoute = handleRoutes(this.routes, urlWithoutParams, req.method.toLowerCase());
           // If the routes object does not have a key of req.method + req.url, return 404
-          if (!this.routes[req.method.toLocaleLowerCase() + urlWithoutParams]) {
+          if (!handleRoute) {
             return res
               .status(404)
               .json({ error: `Cannot ${req.method} ${urlWithoutParams}` });
           }
-
-          this.routes[req.method.toLowerCase() + urlWithoutParams](req, res);
+          try {
+            req.params = handleRoute.params;
+            const handlerResult = handleRoute.handler(req, res, (error) => {
+              res.setHeader("Connection", "close");
+              this._errorHandler(error, req, res);
+            });
+            if (handlerResult && typeof handlerResult.then === "function") {
+              handlerResult.catch((error) => {
+                res.setHeader("Connection", "close");
+                this._errorHandler(error, req, res);
+              });
+            }
+          } catch (error) {
+            res.setHeader("Connection", "close");
+            this._errorHandler(error, req, res);
+          }
         } else {
           middleware[index](req, res, () => {
             runMiddleware(req, res, middleware, index + 1);
@@ -60,11 +79,15 @@ class Cpeak {
   }
 
   route(method, path, cb) {
-    this.routes[method + path] = cb;
+    this.routes.insert(method.toLowerCase(), path, cb);
   }
 
   beforeEach(cb) {
     this.middleware.push(cb);
+  }
+
+  errorHandler(cb) {
+    this._errorHandler = cb;
   }
 
   listen(port, cb) {
@@ -74,6 +97,6 @@ class Cpeak {
   }
 }
 
-Cpeak.parseJSON = parseJSON;
+export { parseJSON, cors };
 
-module.exports = Cpeak;
+export default Cpeak;
